@@ -1,5 +1,5 @@
 (ns cellular.core
-  (:use seesaw.core seesaw.graphics seesaw.color)
+  (:use seesaw.core seesaw.graphics seesaw.color seesaw.border)
   (:import 
    (java.awt Color Dimension Frame)))
 
@@ -8,60 +8,67 @@
 (def field-width 100)
 (def field-height 100)
 
-;; Reference to a field hash
-(def field (atom {}))
+(def cell-pixel-size 3)
 
-;; List of coordinates offsets to gather a cell's neighbours
-(def neighbours-offsets (for [dx [-1 0 1] dy [-1 0 1] :when (not= dx dy 0)] [dx dy]))
+(def game-field (atom #{[21 22] [22 21] [22 22] [22 23] [23 21]}))
 
-(defn in-field [cell]
-  "Returns true if cell is within the bounds of a field and false otherwise"
-  (let [[x y] cell]
-    (and (>= x 0) (>= y 0)
-         (< x field-width) (< y field-height))))
+(defn neighbours [[x y]]
+  "Returns a sequence of a given point's neighbours considering field borders"
+  (for [dx [-1 0 1]
+        dy [-1 0 1]
+        :when (not= 0 dx dy)]
+    [(+ x dx) (+ y dy)]))
 
-(defn field-at [cell]
-  "Returns a current value of a cell or nil"
-  (cell @field))
+  ;; (let [coords (for [dx [-1 0 1]
+  ;;                    dy [-1 0 1]
+  ;;                    :when (not= 0 dx dy)]
+  ;;                [(+ x dx) (+ y dy)])]
+  ;;   (filter (fn [[x y]]
+  ;;             (and (>= x 0)
+  ;;                  (>= y 0)
+  ;;                  (< x field-width)
+  ;;                  (< y field-height)))
+  ;;           coords)))
 
-(defn neighbouring-cells [cell]
-  "Returns a list of coordinates of a neighbouring cells"
-  (letfn [(add-coords [x y] (map + x y))]
-    (filter in-field
-            (map #(add-coords cell %) neighbours-offsets))))
+(defn alive? [n cell]
+  "Returns true if there's a life at given cell with n alive neighbours"
+  (or (= n 3)
+       (and (= n 2) cell)))
 
-(defn count-alive-neighbours [cell]
-  "Counts number of alive neighbours of a given cell"
-  (let [ns (neighbouring-cells cell)]
-    (count (filter (complement nil?) (map field-at ns)))))
+(defn next-step [field]
+  "Accepts a set of vectors field where each element represents a single alive cell on the field"
+  (set (for [[pos n] (frequencies (mapcat neighbours field))
+             :when (alive? n (field pos))]
+         pos)))
 
+(defn paint-field [w g]
+  "Paint function should takes a widget (ignored) and graphics element as arguments"
+  (doseq [[x y] @game-field]
+    (let [cx (* x cell-pixel-size)
+          cy (* y cell-pixel-size)
+          shape (circle cx cy cell-pixel-size)]
+      (draw g shape (style :background :blue))))
+  (swap! game-field next-step))
 
-(defn cell-expires? [cell]
-  (if-let [state (cell @field)]
-    (<= state 0)))
-
-;; 0. Allocate new cells
-;; 1. Generate new cells
-;; 2. Expire old cells
-;; 3. Swap fields values
-
-;; (defn run-simulation-step []
-;;   (let [new-field (atom {})]
-;;     (doseq [x (range field-width)
-;;             y (range field-height)]
-;;       (let [cell [x y]
-;;             cnt (count-alive-neighbours cell)]
-;;         (cond 
-;;          (>= cnt S) (swap! new-field assoc cell C)
-;;          (>
-
-(defn paint []
-  )
+(defn run-evolution [canvas]
+  (print "Evolving")
+  (letfn [(evolution []
+            (Thread/sleep 50)
+            (repaint! canvas)
+            (recur))]
+    (future (evolution))))
 
 (defn -main [& args]
-  (invoke-later
-   (-> (frame :title "Hello",
-              :width 500, :height 500,
-              :content "Hello, Seesaw",
-              :on-close :exit)
-       show!)))
+  (let [canvas (canvas :id :canvas,
+                       :paint paint-field
+                       :background :black
+                       :border (line-border :color :green :thickness 3))]
+    (invoke-later
+     (-> (frame 
+          :title "Hello",
+          :size [(* field-height cell-pixel-size) :by (* field-height cell-pixel-size)],
+          :content (border-panel :center canvas),
+          :on-close :exit)
+         show!))
+    (run-evolution canvas)))
+
